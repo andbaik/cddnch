@@ -1,18 +1,16 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
 $title = 'Недельное планирование';
+$week_set = !empty($_GET['week_set']) ? $_GET['week_set'] : 'now';
+
 
 
 include_once('block/header.php');
 include_once('block/setting.php');
 include_once('function/function.php');
 include_once('block/connect_db.php');
-
-$week_set = isset($_GET['week_set']) ? $_GET['week_set'] : 'now';
-$weekNumber = isset($_GET['weekNumber']) ? $_GET['weekNumber'] : NULL;
-$week_edit = !empty($_GET['weekNumber']) ? $_GET['weekNumber'] : NULL;
-
-$_SESSION["weekNumber"] = $weekNumber;
 
 if ($id_user == false) {
     header('Location:' . $site);
@@ -35,8 +33,6 @@ switch ($level) {
         echo "Error";
         break;
 }
-
-
 
 switch ($week_set) {
     case 'last':
@@ -80,39 +76,9 @@ switch ($week_set) {
             $start->modify('+1 day');
         }
         break;
-
-    case 'user':
-        /*выбранная неделя */
-
-        if ($week_edit !== NULL) {
-            $today = new DateTime($week_edit);
-        } else {
-            $today = new DateTime();
-        }
-        $start = clone $today;
-        $start->modify('monday this week');
-
-        // Пример использования:
-        $monday = $start->format('Y-m-d');
-        $weekNumber = getWeekNumber($monday);
-
-        for ($i = 0; $i < 7; $i++) {
-            $days_arr[] = [$start->format('d.m.Y')];
-            $start->modify('+1 day');
-        }
-        /*------*/
-        break;
-
-
-
-
     default:
         $error = 'Что то пошло не так';
         break;
-}
-
-if ($error_print == true) {
-    echo "WEEK_SET = $week_set WEEK_Number = $weekNumber";
 }
 
 if (empty($weekNumber)) {
@@ -461,6 +427,8 @@ if (!$query_day_week) {
                             echo "</tr>";
                         }
                     }
+                    $weekNumber = isset($_GET['weekNumber']) ? $_GET['weekNumber'] : null; // Получение weekNumber из GET-запроса
+                    $_SESSION['weekNumber'] = $weekNumber; // Сохранение weekNumber в сессии для использования в других скриптах    
                     ?>
                     </tbody>
                 </table>
@@ -522,7 +490,7 @@ if (!$query_day_week) {
         $(function() {
             $('#numberWeek').change(function() {
                 var week = $(this).val();
-                var hrf = 'control_dcsrb.php?week_set=user&weekNumber=' + week;
+                var hrf = 'control_dcsrb.php?week_set=now&weekNumber=' + week;
                 location.replace(hrf);
             });
 
