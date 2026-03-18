@@ -1,24 +1,22 @@
 <?php
-session_start();
+$title = 'Страница администрирования';
 
-$user = isset($_SESSION['user']['id_user']) ? $_SESSION['user']['id_user'] : false;
-$id_u = $_SESSION['user']['id_user'];
-
-
-$title = 'Страница администраторов';
 include_once('block/header.php');
 include_once('block/setting.php');
+include_once('function/function.php');
 include_once('block/connect_db.php');
 
-$query_admin = $pdo->query("SELECT `id_d`, `id_dcs`, `level`, `status` FROM `user_control` WHERE `id_user` = $id_u");
-$row_admin = $query_admin->fetch(PDO::FETCH_OBJ);
-$d = $row_admin->id_d;
-$dcs = $row_admin->id_dcs;
-$admin = $row_admin->level;
+// обработчик ajax-запросов для динамических селектов
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['ajax'])) {
+    header('Content-Type: text/html; charset=utf-8');
+    switch ($_POST['ajax']) {
+        case 'dcs':  echo getDcs();  break;
+        case 'dnch': echo getDnch(); break;
+    }
+    exit;
+}
 
-
-echo "ID = $id_u, D=$d, DCS=$dcs, LEVEL=$admin";
-
+$error = '';
 
 function getRailway()
 {
@@ -35,14 +33,15 @@ function getDcs()
 {
     global $pdo;
     $data = "<option value=0> Выберите центр</option>";
-    $code = $_POST['code'];
-    $dcs_query = $pdo->query("SELECT * FROM `dcs` WHERE `id_d` = $code");
-    while ($row_dcs = $dcs_query->fetch(PDO::FETCH_OBJ)) {
+    // POST may contain 'code' (old clients) or 'id_d' (new bindCascade)
+    $code = isset($_POST['code']) ? (int)$_POST['code'] : (isset($_POST['id_d']) ? (int)$_POST['id_d'] : 0);
+    $stmt = $pdo->prepare('SELECT id_dcs,dcs_name FROM dcs WHERE id_d = :code');
+    $stmt->execute([':code' => $code]);
+    while ($row_dcs = $stmt->fetch(PDO::FETCH_OBJ)) {
         $data .= "<option value= {$row_dcs->id_dcs}> {$row_dcs->dcs_name}</option>";
     }
-    return ($data);
+    return $data;
 };
-
 
 $html1 = getRailway();
 
@@ -50,45 +49,102 @@ function getDnch()
 {
     global $pdo;
     $data = "<option value=0> Выберите ДНЧ</option>";
-    $code_d = $_POST['code_d'];
-    $code_dcs = $_POST['code_dcs'];
-    $dnch_query = $pdo->query("SELECT * FROM `dnch` WHERE `id_d`= $code_d AND `id_dcs` = $code_dcs");
-    while ($row_dnch = $dnch_query->fetch(PDO::FETCH_OBJ)) {
+    // support both old param names and new ones
+    $code_d   = isset($_POST['code_d'])   ? (int)$_POST['code_d']   : (isset($_POST['id_d']) ? (int)$_POST['id_d'] : 0);
+    $code_dcs = isset($_POST['code_dcs']) ? (int)$_POST['code_dcs'] : (isset($_POST['id_dcs']) ? (int)$_POST['id_dcs'] : 0);
+    $stmt = $pdo->prepare('SELECT id_dnch,dnch_name FROM dnch WHERE id_d = :d AND id_dcs = :dcs');
+    $stmt->execute([':d' => $code_d, ':dcs' => $code_dcs]);
+    while ($row_dnch = $stmt->fetch(PDO::FETCH_OBJ)) {
         $data .= "<option value= {$row_dnch->id_dnch}> {$row_dnch->dnch_name}</option>";
     }
-    return ($data);
+    return $data;
 };
 
-if (!empty($_POST['code'])) {
-    echo getDcs();
-    exit;
+// удалён старый двоичный обработчик POST
+
+
+
+// сессия для уровня доступа/фильтров
+if (session_status() === PHP_SESSION_NONE) {
+    @session_start();
 }
-if (!empty($_POST['code_dcs'])) {
-    echo getDnch();
+
+// значения из POST/сессии
+$id_d   = isset($_POST['code_d'])   ? (int)$_POST['code_d']   : (isset($_SESSION['id_d']) ? (int)$_SESSION['id_d'] : 0);
+$id_dcs = isset($_POST['code_dcs']) ? (int)$_POST['code_dcs'] : (isset($_SESSION['id_dcs']) ? (int)$_SESSION['id_dcs'] : 0);
+$level  = isset($_SESSION['level'])  ? (int)$_SESSION['level']  : 2;
+
+$baseSql = "SELECT *
+            FROM user_control
+            JOIN d   ON user_control.id_d   = d.id_d
+            JOIN dcs ON user_control.id_dcs = dcs.id_dcs
+            JOIN dnch ON user_control.id_dnch = dnch.id_dnch";
+$where = '';
+$params = [];
+switch ($level) {
+    case 2:
+        // фильтр по дирекции только если задан реальный идентификатор
+        if ($id_d > 0) {
+            $where = 'WHERE user_control.id_d = :id_d';
+            $params[':id_d'] = $id_d;
+        }
+        break;
+    case 3:
+        // фильтр по дирекции и центру; необходимо, чтобы оба были ненулевыми
+        if ($id_d > 0 && $id_dcs > 0) {
+            $where = 'WHERE user_control.id_d = :id_d AND user_control.id_dcs = :id_dcs';
+            $params[':id_d'] = $id_d;
+            $params[':id_dcs'] = $id_dcs;
+        }
+        break;
+    case 1:
+    default:
+        // без ограничений
+        break;
+}
+
+$sql = trim("$baseSql $where");
+try {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $query_dnch = $stmt;
+    // отладка: если строк нет, можно увидеть SQL и параметры
+    if ($stmt->rowCount() === 0) {
+        // закомментируйте или удалите после отладки
+        // echo '<pre>SQL: ' . $sql . "\nParams: " . print_r($params,1) . '</pre>';
+    }
+} catch (PDOException $e) {
+    echo '<pre>SQL: ' . $sql . "\nОшибка: " . $e->getMessage() . '</pre>';
     exit;
 }
 
-$admin = 1;
-switch ($admin) {
-    case '1':
-        $query_dnch = $pdo->query("SELECT * FROM `user_control` JOIN d ON user_control.id_d = d.id_d JOIN dcs ON user_control.id_dcs = dcs.id_dcs JOIN dnch ON user_control.id_dnch = dnch.id_dnch");
-        break;
-    case '2':
-        $query_dnch = $pdo->query("SELECT * FROM `user_control` JOIN d ON user_control.id_d = d.id_d JOIN dcs ON user_control.id_dcs = dcs.id_dcs JOIN dnch ON user_control.id_dnch = dnch.id_dnch WHERE id_d=$d");
-        break;
-    case '3':
-        $query_dnch = $pdo->query("SELECT * FROM `user_control` JOIN d ON user_control.id_d = d.id_d JOIN dcs ON user_control.id_dcs = dcs.id_dcs JOIN dnch ON user_control.id_dnch = dnch.id_dnch WHERE id_d=$d AND id_dcs=$dcs");
-        break;
-    default:
-        $query_dnch = $pdo->query("SELECT * FROM `user_control` JOIN d ON user_control.id_d = d.id_d JOIN dcs ON user_control.id_dcs = dcs.id_dcs JOIN dnch ON user_control.id_dnch = dnch.id_dnch");
-        break;
+if ($error !== '') {
+    echo "<div class ='mt-5 text-danger text-center'> <h2>$error</h2> </div>";
+    echo "<a href='control.php' class='text-center'><h2>вернуться в начало</h2></a>";
+    exit;
 }
 
 
 ?>
-</head>
 
 <body>
+    <div id="preloader">Добро пожаловать!</div>
+
+        <!-- Модальное окно редактирования пользователя -->
+
+    <div class="modal fade" id="modalEditUser" tabindex="-1" aria-labelledby="ModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h1 class="modal-title fs-5" id="ModalLabel">Редактировать Пользователя</h1>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body"> </div>
+
+            </div>
+        </div>
+    </div>
+
     <!--Модальное окно добавления станции-->
     <div class="modal fade " id="modalStation" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -166,7 +222,7 @@ switch ($admin) {
         </div>
     </div>
 
-    <!--Модальное окно добавления Пользователя-->
+    <!--Модальное окно добавления Пользователя -->
 
     <div class="modal fade " id="modalUser" tabindex="-1" aria-labelledby="ModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -198,11 +254,11 @@ switch ($admin) {
                             </div>
                             <div class="famname col-4">
                                 <label for="name">Имя</label>
-                                <input type="text" class="form-control" id="name" name="name">
+                                <input type="text" class="form-control" id="name" name="name" autocomplete="off">
                             </div>
                             <div class="famname col-4">
                                 <label for="midl_name">Отчество</label>
-                                <input type="text" class="form-control" id="mmidl_name" name="midl_name">
+                                <input type="text" class="form-control" id="midl_name" name="midl_name">
                             </div>
                         </div>
                         <div class="row">
@@ -216,7 +272,7 @@ switch ($admin) {
                             </div>
                             <div class="login col-4">
                                 <label for="email">email</label>
-                                <input type="email" class="form-control" id="email" name="email">
+                                <input type="email" class="form-control" id="email" name="email" autocomplete="off">
                             </div>
                         </div>
                         <div class="row my-3">
@@ -239,7 +295,6 @@ switch ($admin) {
                             </div>
                         </div>
 
-
                 </div>
                 <div class="info">
                     <div class="error-mess text-center" id="error-block_m3"></div>
@@ -255,15 +310,20 @@ switch ($admin) {
 
 
 
-    <div id="preloader">Добро пожаловать!</div>
+
+
+
+
     <div class="wrapper">
-        <header class="header">
-            <?php include_once('block/nav.php'); ?>
-        </header>
+
         <main class="main">
             <div class="container">
-                <h1 class="text-center">Страница для администраторов</h1>
-
+                <header class="header">
+                    <?php include_once('block/nav_dcsrb.php'); ?>
+                </header>
+                <div class="heading">
+                    <h1 class="text-center">Страница для администраторов</h1>
+                </div>
 
                 <div class="page-change d-flex  flex-md-column text-center my-3">
                     <div class="row">
@@ -314,7 +374,6 @@ switch ($admin) {
                             <h5>Список ДНЧ</h5>
                             <div class="frame_edit">
 
-
                                 <table class="iksweb" style="table-layout: fixed; width: 100%">
                                     <colgroup>
                                         <col style="width: 45px">
@@ -345,32 +404,25 @@ switch ($admin) {
                                         $k = 1;
                                         while ($row = $query_dnch->fetch(PDO::FETCH_OBJ)) {
                                             $html2 .= "
-                                            <tr>
-                                        <td>$k </td>
-                                        <td>$row->d</td>
-                                        <td>$row->dcs_name</td>
-                                        <td>$row->dnch_name</td>
-                                        <td>$row->surname $row->name $row->midl_name</td>                                     
-                                        ";
+                                                <tr>
+                                                    <td>$k </td>
+                                                    <td>$row->d</td>
+                                                    <td>$row->dcs_name</td>
+                                                    <td>$row->dnch_name</td>
+                                                    <td>$row->surname $row->name $row->midl_name</td>                                     
+                                                ";
 
-                                        $html_station = "";
-                                        $query_stations_dnch = $pdo->query("SELECT * FROM `stations` WHERE `id_dnch` = $row->id_dnch");
-                                        while($row_station = $query_stations_dnch->fetch(PDO::FETCH_OBJ)){
-                                            $html_station .= $row_station->station . ', ';
-                                        };
-                                        $html2 .= "<td>$html_station</td>";
+                                            $html_station = "";
+                                            $query_stations_dnch = $pdo->query("SELECT * FROM `stations` WHERE `id_dnch` = $row->id_dnch");
+                                            while ($row_station = $query_stations_dnch->fetch(PDO::FETCH_OBJ)) {
+                                                $html_station .= $row_station->station . ', ';
+                                            };
+                                            $html2 .= "<td>$html_station</td>";
 
-                                            if ($admin == 1) {
-                                                $html2 .= "
-            <td><a href='../edit_dnch.php?edit=1&id={$row->id_user}'><i class='fa-solid fa-pencil'></i></td>
-            <td><a href='../edit_dnch.php?edit=2&id={$row->id_user}'><i class='fa-solid fa-trash-can'></i></td>
-            </tr>";
-                                            } else {
-                                                $html2 = "
-                                            <td></td>
-                                            <td></td>
-                                            </tr>";
-                                            }
+                                            $html2 .= "
+                                                    <td><a class='openModalEdit'  data-id_user=$row->id_user  href='#' ><i class='fa-solid fa-pencil'></i></td>
+                                                    <td><a href='../edit_dnch.php?edit=2&id={$row->id_user}'><i class='fa-solid fa-trash-can'></i></td>
+                                                    </tr>";
                                             $k++;
                                         }
 
@@ -379,93 +431,61 @@ switch ($admin) {
                                     </tbody>
                                 </table>
 
-
                                 </form>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+
         </main>
-        <?php include_once('block/footer.php'); ?>
+
+        <?php include_once("block/footer.php"); ?>
+        <script>
+            // Универсальный обработчик "каскадных" селектов
+            function bindCascade(parentSel, childSel, ajaxType, extraSelArray) {
+                $(document).on('change', parentSel, function() {
+                    var val = $(this).val();
+                    var data = { ajax: ajaxType };
+                    // передаём имя поля как ключ
+                    data[$(this).attr('name')] = val;
+                    // добавляем дополнительные параметры, если указаны
+                    if (Array.isArray(extraSelArray)) {
+                        extraSelArray.forEach(function(sel) {
+                            var $el = $(sel);
+                            if ($el.length) {
+                                data[$el.attr('name')] = $el.val();
+                            }
+                        });
+                    }
+                    $(childSel).load('page-admin.php', data, function() {
+                        $(childSel).closest('div').fadeIn('slow');
+                    });
+                });
+            }
+
+            $(function() {
+                bindCascade('#id_d',        '#id_dcs',       'dcs');
+                bindCascade('#id_dcs',      '#id_dnch',      'dnch', ['#id_d']);
+                bindCascade('#id_d_m',      '#id_dcs_m',     'dcs');
+                bindCascade('#id_dcs_m',    '#id_dnch_m',    'dnch', ['#id_d_m']);
+                bindCascade('#id_d_m2',     '#id_dcs_m2',    'dcs');
+                bindCascade('#id_d_m3',     '#id_dcs_m3',    'dcs');
+                bindCascade('#id_dcs_m3',   '#id_dnch_m3',   'dnch', ['#id_d_m3']);
+                bindCascade('#id_d_m4',     '#id_dcs_m4',    'dcs');
+                bindCascade('#id_dcs_m4',   '#id_dnch_m4',   'dnch', ['#id_d_m4']);
+            });
+        </script>
 
         <script>
-            /*--выбор дирекции и ДЦС--*/
-            $(function() {
-                $('#id_d').change(function() {
-                    var code = $(this).val();
-                    $('#id_dcs').load('page-admin.php', {
-                        code: code
-                    }, function() {
-                        $('.dcs-select').fadeIn('slow');
-                    });
-                });
-                $('#id_dcs').change(function() {
-                    var code_dcs = $(this).val();
-                    var code_d = $('#id_d').val();
-                    $('#id_dnch').load('page-admin.php', {
-                        code_dcs: code_dcs,
-                        code_d: code_d
-                    }, function() {
-                        $('.dnch-select').fadeIn('slow');
-                    });
-                });
-            });
-
-            /*--выбор дирекции и ДЦС--  в МОДАЛЬНОМ окне*/
-            $(function() {
-                $('#id_d_m').change(function() {
-                    var code = $(this).val();
-                    $('#id_dcs_m').load('page-admin.php', {
-                        code: code
-                    }, function() {
-                        $('.dcs-select_m').fadeIn('slow');
-                    });
-                });
-                $('#id_dcs_m').change(function() {
-                    var code_dcs = $(this).val();
-                    var code_d = $('#id_d_m').val();
-                    $('#id_dnch_m').load('page-admin.php', {
-                        code_dcs: code_dcs,
-                        code_d: code_d
-                    }, function() {
-                        $('.dnch-select_m').fadeIn('slow');
-                    });
-                });
-            });
-
-            /*--выбор дирекции и ДЦС--  во ВТОРОМ МОДАЛЬНОМ окне*/
-            $(function() {
-                $('#id_d_m2').change(function() {
-                    var code = $(this).val();
-                    $('#id_dcs_m2').load('page-admin.php', {
-                        code: code
-                    }, function() {
-                        $('.dcs-select_m2').fadeIn('slow');
-                    });
-                });
-            });
-
-
-            /*--выбор дирекции и ДЦС--  в ТРЕТЬЕМ МОДАЛЬНОМ окне*/
-            $(function() {
-                $('#id_d_m3').change(function() {
-                    var code = $(this).val();
-                    $('#id_dcs_m3').load('page-admin.php', {
-                        code: code
-                    }, function() {
-                        $('.dcs-select_m3').fadeIn('slow');
-                    });
-                });
-                $('#id_dcs_m3').change(function() {
-                    var code_dcs = $(this).val();
-                    var code_d = $('#id_d_m3').val();
-                    $('#id_dnch_m3').load('page-admin.php', {
-                        code_dcs: code_dcs,
-                        code_d: code_d
-                    }, function() {
-                        $('.dnch-select_m3').fadeIn('slow');
-                    });
+            // Делегированная обработка клика по кнопкам редактирования
+            $(document).on('click', '.openModalEdit', function(e) {
+                e.preventDefault();
+                var id_user = $(this).data('id_user') || $(this).attr('data-id_user');
+                // Загружаем содержимое в тело модального окна и показываем модал
+                $('#modalEditUser .modal-body').load('ajax/getContent.php?id=' + id_user, function() {
+                    $('#modalEditUser').modal('show');
                 });
             });
         </script>
@@ -552,7 +572,13 @@ switch ($admin) {
                 });
             });
         </script>
+
     </div>
+
 </body>
 
 </html>
+
+
+
+

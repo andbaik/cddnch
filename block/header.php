@@ -16,6 +16,7 @@ $user = isset($_SESSION['user']) ? $_SESSION['user'] : false;
 $id_user = isset($user['id_user']) ? $user['id_user'] : false;
 $level = isset($user['level']) ? $user['level'] : false;
 $id_dcs = isset($user['id_dcs']) ? $user['id_dcs'] : false;
+$id_d = isset($user['id_d']) ? $user['id_d'] : false;
 
 
 
@@ -34,7 +35,7 @@ $_SESSION['ip_user'] = $ip_user;
 
 
 if ($error_print == true) {
-    echo "IP_user = $ip_user ID_user = $id_user LEVEL = $level DCS = $id_dcs";
+    echo "IP_user = $ip_user ID_user = $id_user LEVEL = $level D = $id_d DCS = $id_dcs";
 }
 ?>
 
