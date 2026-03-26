@@ -12,75 +12,150 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['ajax'])) {
     switch ($_POST['ajax']) {
         case 'dcs':  echo getDcs();  break;
         case 'dnch': echo getDnch(); break;
+        case 'table': echo getUserTable(
+            isset($_POST['id_d']) ? (int)$_POST['id_d'] : 0,
+            isset($_POST['id_dcs']) ? (int)$_POST['id_dcs'] : 0,
+            isset($_SESSION['level']) ? (int)$_SESSION['level'] : 2
+        ); break;
     }
     exit;
 }
 
 $error = '';
 
-function getIntFromPost(array $keys, int $default = 0): int
-{
-    foreach ($keys as $key) {
-        if (isset($_POST[$key])) {
-            return (int) $_POST[$key];
-        }
-    }
-    return $default;
-}
-
 function getRailway()
 {
     global $pdo;
-
     $html_railways = "<option value=0> Выберите дирекцию</option>";
-    $railways_query = $pdo->query('SELECT id_d,d FROM `d`');
+    $railways_query = $pdo->query('SELECT * FROM `d`');
     while ($row_railway = $railways_query->fetch(PDO::FETCH_OBJ)) {
-        $html_railways .= "<option value= {$row_railway->id_d}> {$row_railway->d}</option>";
-    }
-
+        $html_railways .= "<option value = {$row_railway->id_d} > {$row_railway->d} </option>";
+    };
     return $html_railways;
-}
+};
 
 function getDcs()
 {
     global $pdo;
-
     $data = "<option value=0> Выберите центр</option>";
-    $code = getIntFromPost(['code', 'id_d', 'id_d_m', 'id_d_m2', 'id_d_m3', 'id_d_m4']);
-
-    $stmt = $pdo->prepare('SELECT id_dcs, dcs_name FROM dcs WHERE id_d = :code');
+    // POST may contain 'code' (old clients) or 'id_d' (new bindCascade) or modal names like 'id_d_m3', 'id_d_m4', etc.
+    $code = isset($_POST['code']) ? (int)$_POST['code'] : 
+            (isset($_POST['id_d']) ? (int)$_POST['id_d'] : 
+            (isset($_POST['id_d_m']) ? (int)$_POST['id_d_m'] : 
+            (isset($_POST['id_d_m2']) ? (int)$_POST['id_d_m2'] : 
+            (isset($_POST['id_d_m3']) ? (int)$_POST['id_d_m3'] : 
+            (isset($_POST['id_d_m4']) ? (int)$_POST['id_d_m4'] : 0)))));
+    $stmt = $pdo->prepare('SELECT id_dcs,dcs_name FROM dcs WHERE id_d = :code');
     $stmt->execute([':code' => $code]);
     while ($row_dcs = $stmt->fetch(PDO::FETCH_OBJ)) {
         $data .= "<option value= {$row_dcs->id_dcs}> {$row_dcs->dcs_name}</option>";
     }
-
     return $data;
-}
+};
 
 $html1 = getRailway();
 
 function getDnch()
 {
     global $pdo;
-
     $data = "<option value=0> Выберите ДНЧ</option>";
-
-    $code_d = getIntFromPost(['code_d', 'id_d', 'id_d_m', 'id_d_m2', 'id_d_m3', 'id_d_m4']);
-    $code_dcs = getIntFromPost(['code_dcs', 'id_dcs', 'id_dcs_m', 'id_dcs_m2', 'id_dcs_m3', 'id_dcs_m4']);
-
-    $stmt = $pdo->prepare('SELECT id_dnch, dnch_name FROM dnch WHERE id_d = :d AND id_dcs = :dcs');
+    // support both old param names and new ones
+    $code_d   = isset($_POST['code_d'])   ? (int)$_POST['code_d']   : 
+                (isset($_POST['id_d']) ? (int)$_POST['id_d'] : 
+                (isset($_POST['id_d_m']) ? (int)$_POST['id_d_m'] : 
+                (isset($_POST['id_d_m2']) ? (int)$_POST['id_d_m2'] : 
+                (isset($_POST['id_d_m3']) ? (int)$_POST['id_d_m3'] : 
+                (isset($_POST['id_d_m4']) ? (int)$_POST['id_d_m4'] : 0)))));
+    $code_dcs = isset($_POST['code_dcs']) ? (int)$_POST['code_dcs'] : 
+                (isset($_POST['id_dcs']) ? (int)$_POST['id_dcs'] : 
+                (isset($_POST['id_dcs_m']) ? (int)$_POST['id_dcs_m'] : 
+                (isset($_POST['id_dcs_m2']) ? (int)$_POST['id_dcs_m2'] : 
+                (isset($_POST['id_dcs_m3']) ? (int)$_POST['id_dcs_m3'] : 
+                (isset($_POST['id_dcs_m4']) ? (int)$_POST['id_dcs_m4'] : 0)))));
+    $stmt = $pdo->prepare('SELECT id_dnch,dnch_name FROM dnch WHERE id_d = :d AND id_dcs = :dcs');
     $stmt->execute([':d' => $code_d, ':dcs' => $code_dcs]);
-
     while ($row_dnch = $stmt->fetch(PDO::FETCH_OBJ)) {
         $data .= "<option value= {$row_dnch->id_dnch}> {$row_dnch->dnch_name}</option>";
     }
-
     return $data;
-}
+};
 
 // удалён старый двоичный обработчик POST
 
+function getUserTable($id_d, $id_dcs, $level) {
+    global $pdo;
+    $debug = "Level: $level, id_d: $id_d, id_dcs: $id_dcs<br>";
+    $baseSql = "SELECT *
+                FROM user_control
+                JOIN d   ON user_control.id_d   = d.id_d
+                JOIN dcs ON user_control.id_dcs = dcs.id_dcs
+                JOIN dnch ON user_control.id_dnch = dnch.id_dnch";
+    $where = '';
+    $params = [];
+    switch ($level) {
+        case 2:
+            // фильтр по дирекции только если задан реальный идентификатор
+            if ($id_d > 0) {
+                $where = 'WHERE user_control.id_d = :id_d';
+                $params[':id_d'] = $id_d;
+            }
+            break;
+        case 3:
+            // фильтр по дирекции и центру; необходимо, чтобы оба были ненулевыми
+            if ($id_d > 0 && $id_dcs > 0) {
+                $where = 'WHERE user_control.id_d = :id_d AND user_control.id_dcs = :id_dcs';
+                $params[':id_d'] = $id_d;
+                $params[':id_dcs'] = $id_dcs;
+            }
+            break;
+        case 1:
+        default:
+            // без ограничений
+            break;
+    }
 
+    $sql = trim("$baseSql $where");
+    $debug .= "SQL: $sql<br>Params: " . json_encode($params) . "<br>";
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $query_dnch = $stmt;
+        $debug .= "Row count: " . $stmt->rowCount() . "<br>";
+    } catch (PDOException $e) {
+        return $debug . 'Ошибка SQL: ' . $e->getMessage();
+    }
+
+    $html2 = $debug;
+    $k = 1;
+    while ($row = $query_dnch->fetch(PDO::FETCH_OBJ)) {
+        $html2 .= "
+            <tr>
+                <td>$k </td>
+                <td>$row->d</td>
+                <td>$row->dcs_name</td>
+                <td>$row->dnch_name</td>
+                <td>$row->surname $row->name $row->midl_name</td>                                     
+        ";
+
+        $html_station = "";
+        $query_stations_dnch = $pdo->query("SELECT * FROM `stations` WHERE `id_dnch` = $row->id_dnch");
+        while ($row_station = $query_stations_dnch->fetch(PDO::FETCH_OBJ)) {
+            $html_station .= $row_station->station . ', ';
+        };
+        $html2 .= "<td>$html_station</td>";
+
+        $html2 .= "
+                <td><a class='openModalEdit'  data-id_user=$row->id_user  href='#' ><i class='fa-solid fa-pencil'></i></td>
+                <td><a href='../edit_dnch.php?edit=2&id={$row->id_user}'><i class='fa-solid fa-trash-can'></i></td>
+                </tr>";
+        $k++;
+    }
+
+    if ($k == 1) {
+        $html2 .= '<tr><td colspan="8">Нет данных</td></tr>';
+    }
+    return $html2;
+}
 
 // сессия для уровня доступа/фильтров
 if (session_status() === PHP_SESSION_NONE) {
@@ -91,56 +166,6 @@ if (session_status() === PHP_SESSION_NONE) {
 $id_d   = isset($_POST['code_d'])   ? (int)$_POST['code_d']   : (isset($_SESSION['id_d']) ? (int)$_SESSION['id_d'] : 0);
 $id_dcs = isset($_POST['code_dcs']) ? (int)$_POST['code_dcs'] : (isset($_SESSION['id_dcs']) ? (int)$_SESSION['id_dcs'] : 0);
 $level  = isset($_SESSION['level'])  ? (int)$_SESSION['level']  : 2;
-
-$baseSql = "SELECT *
-            FROM user_control
-            JOIN d   ON user_control.id_d   = d.id_d
-            JOIN dcs ON user_control.id_dcs = dcs.id_dcs
-            JOIN dnch ON user_control.id_dnch = dnch.id_dnch";
-$where = '';
-$params = [];
-switch ($level) {
-    case 2:
-        // фильтр по дирекции только если задан реальный идентификатор
-        if ($id_d > 0) {
-            $where = 'WHERE user_control.id_d = :id_d';
-            $params[':id_d'] = $id_d;
-        }
-        break;
-    case 3:
-        // фильтр по дирекции и центру; необходимо, чтобы оба были ненулевыми
-        if ($id_d > 0 && $id_dcs > 0) {
-            $where = 'WHERE user_control.id_d = :id_d AND user_control.id_dcs = :id_dcs';
-            $params[':id_d'] = $id_d;
-            $params[':id_dcs'] = $id_dcs;
-        }
-        break;
-    case 1:
-    default:
-        // без ограничений
-        break;
-}
-
-$sql = trim("$baseSql $where");
-try {
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $query_dnch = $stmt;
-    // отладка: если строк нет, можно увидеть SQL и параметры
-    if ($stmt->rowCount() === 0) {
-        // закомментируйте или удалите после отладки
-        // echo '<pre>SQL: ' . $sql . "\nParams: " . print_r($params,1) . '</pre>';
-    }
-} catch (PDOException $e) {
-    echo '<pre>SQL: ' . $sql . "\nОшибка: " . $e->getMessage() . '</pre>';
-    exit;
-}
-
-if ($error !== '') {
-    echo "<div class ='mt-5 text-danger text-center'> <h2>$error</h2> </div>";
-    echo "<a href='control.php' class='text-center'><h2>вернуться в начало</h2></a>";
-    exit;
-}
 
 
 ?>
@@ -176,7 +201,7 @@ if ($error !== '') {
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
                 </div>
                 <div class="modal-body">
-                    <form action="#" method="POST" id="add_station" action="multipart/form-data">
+                    <form action="ajax/add_station.php" method="POST" id="add_station" enctype="multipart/form-data">
                         <label for="id_d_m">Выберите дирекцию</label>
                         <select name="id_d_m" id="id_d_m" class="form-control"> <?php echo $html1; ?></select>
                         <div class="dcs-select" disabled>
@@ -213,7 +238,7 @@ if ($error !== '') {
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
                 </div>
                 <div class="modal-body">
-                    <form action="#" method="POST" id="add_dnch" action="multipart/form-data">
+                    <form action="ajax/add_dnch.php" method="POST" id="add_dnch" enctype="multipart/form-data">
                         <label for="id_d_m2">Выберите дирекцию</label>
                         <select name="id_d_m2" id="id_d_m2" class="form-control"> <?php echo $html1; ?></select>
                         <div class="dcs-select" disabled>
@@ -254,7 +279,7 @@ if ($error !== '') {
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
                 </div>
                 <div class="modal-body">
-                    <form action="#" method="POST" id="add_user" action="multipart/form-data">
+                    <form action="ajax/add_user.php" method="POST" id="add_user" enctype="multipart/form-data">
                         <label for="id_d_m3">Выберите дирекцию</label>
                         <select name="id_d_m3" id="id_d_m3" class="form-control"> <?php echo $html1; ?></select>
 
@@ -396,7 +421,7 @@ if ($error !== '') {
                             <h5>Список ДНЧ</h5>
                             <div class="frame_edit">
 
-                                <table class="iksweb" style="table-layout: fixed; width: 100%">
+                                <table id="user-table" class="iksweb" style="table-layout: fixed; width: 100%">
                                     <colgroup>
                                         <col style="width: 45px">
                                         <col style="width: 100px">
@@ -421,35 +446,7 @@ if ($error !== '') {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php
-                                        $html2 = "";
-                                        $k = 1;
-                                        while ($row = $query_dnch->fetch(PDO::FETCH_OBJ)) {
-                                            $html2 .= "
-                                                <tr>
-                                                    <td>$k </td>
-                                                    <td>$row->d</td>
-                                                    <td>$row->dcs_name</td>
-                                                    <td>$row->dnch_name</td>
-                                                    <td>$row->surname $row->name $row->midl_name</td>                                     
-                                                ";
-
-                                            $html_station = "";
-                                            $query_stations_dnch = $pdo->query("SELECT * FROM `stations` WHERE `id_dnch` = $row->id_dnch");
-                                            while ($row_station = $query_stations_dnch->fetch(PDO::FETCH_OBJ)) {
-                                                $html_station .= $row_station->station . ', ';
-                                            };
-                                            $html2 .= "<td>$html_station</td>";
-
-                                            $html2 .= "
-                                                    <td><a class='openModalEdit'  data-id_user=$row->id_user  href='#' ><i class='fa-solid fa-pencil'></i></td>
-                                                    <td><a href='../edit_dnch.php?edit=2&id={$row->id_user}'><i class='fa-solid fa-trash-can'></i></td>
-                                                    </tr>";
-                                            $k++;
-                                        }
-
-                                        echo $html2;
-                                        ?>
+                                        <?php echo getUserTable($id_d, $id_dcs, $level); ?>
                                     </tbody>
                                 </table>
 
@@ -483,27 +480,47 @@ if ($error !== '') {
                     }
                     $(childSel).load('page-admin.php', data, function() {
                         $(childSel).closest('div').fadeIn('slow');
+                        // Если загружен #id_dcs, устанавливаем значение и триггерим change
+                        if (childSel === '#id_dcs') {
+                            $(childSel).val(<?php echo $id_dcs; ?>);
+                            $(childSel).trigger('change');
+                        }
                     });
                 });
             }
 
             $(function() {
-                    var cascadeMap = [
-                        {parent: '#id_d',      child: '#id_dcs',    ajax: 'dcs'},
-                        {parent: '#id_dcs',    child: '#id_dnch',   ajax: 'dnch', extra: ['#id_d']},
-                        {parent: '#id_d_m',    child: '#id_dcs_m',  ajax: 'dcs'},
-                        {parent: '#id_dcs_m',  child: '#id_dnch_m', ajax: 'dnch', extra: ['#id_d_m']},
-                        {parent: '#id_d_m2',   child: '#id_dcs_m2', ajax: 'dcs'},
-                        {parent: '#id_d_m3',   child: '#id_dcs_m3', ajax: 'dcs'},
-                        {parent: '#id_dcs_m3', child: '#id_dnch_m3', ajax: 'dnch', extra: ['#id_d_m3']},
-                        {parent: '#id_d_m4',   child: '#id_dcs_m4', ajax: 'dcs'},
-                        {parent: '#id_dcs_m4', child: '#id_dnch_m4', ajax: 'dnch', extra: ['#id_d_m4']}
-                    ];
+                bindCascade('#id_d',        '#id_dcs',       'dcs');
+                bindCascade('#id_dcs',      '#id_dnch',      'dnch', ['#id_d']);
+                bindCascade('#id_d_m',      '#id_dcs_m',     'dcs');
+                bindCascade('#id_dcs_m',    '#id_dnch_m',    'dnch', ['#id_d_m']);
+                bindCascade('#id_d_m2',     '#id_dcs_m2',    'dcs');
+                bindCascade('#id_dcs_m2',   '#id_dnch_m2',   'dnch', ['#id_d_m2']);
+                bindCascade('#id_d_m3',     '#id_dcs_m3',    'dcs');
+                bindCascade('#id_dcs_m3',   '#id_dnch_m3',   'dnch', ['#id_d_m3']);
+                bindCascade('#id_d_m4',     '#id_dcs_m4',    'dcs');
+                bindCascade('#id_dcs_m4',   '#id_dnch_m4',   'dnch', ['#id_d_m4']);
 
-                    cascadeMap.forEach(function(cfg) {
-                        bindCascade(cfg.parent, cfg.child, cfg.ajax, cfg.extra);
+                // Инициализация селектов при загрузке
+                if ($('#id_d').val() > 0) {
+                    $('#id_d').trigger('change');
+                }
+            });
+        </script>
+
+        <script>
+            // Обновление таблицы при изменении фильтров
+            $(function() {
+                $('#id_d, #id_dcs').on('change', function() {
+                    var id_d = $('#id_d').val();
+                    var id_dcs = $('#id_dcs').val();
+                    console.log('Updating table with id_d:', id_d, 'id_dcs:', id_dcs);
+                    $.post('page-admin.php', { ajax: 'table', id_d: id_d, id_dcs: id_dcs }, function(data) {
+                        console.log('Received data:', data);
+                        $('#user-table tbody').html(data);
                     });
                 });
+            });
         </script>
 
         <script>
@@ -521,52 +538,11 @@ if ($error !== '') {
             });
         </script>
 
-        <style>
-            .popup-message {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                z-index: 1100;
-                min-width: 240px;
-                padding: 12px 16px;
-                border-radius: 6px;
-                color: #fff;
-                box-shadow: 0 2px 14px rgba(0, 0, 0, .25);
-                display: none;
-            }
-            .popup-message.success { background: #28a745; }
-            .popup-message.error { background: #dc3545; }
-        </style>
-
-        <div class="popup-message" id="popupMessage"></div>
-
         <script>
-            function showPopup(message, type = 'success') {
-                var popup = $('#popupMessage');
-                popup.removeClass('success error').addClass(type).text(message).fadeIn(200);
-                clearTimeout(popup.data('timeout'));
-                var timeout = setTimeout(function() { popup.fadeOut(300); }, 3000);
-                popup.data('timeout', timeout);
-            }
-
-            function handleSuccess(data, text, $errorBlock, form, modal) {
-                if ($.trim(data) === '1') {
-                    $errorBlock.hide();
-                    showPopup(text, 'success');
-                    if (form) form[0].reset();
-                    if (modal) modal.modal('hide');
-                    setTimeout(function() { document.location.reload(true); }, 500);
-                } else {
-                    $errorBlock.show().text(data);
-                    showPopup('Ошибка: ' + data, 'error');
-                }
-            }
-
+            //Обработка модального окна добавления станцции
             $("form#add_station").submit(function(e) {
                 e.preventDefault();
                 var formData = new FormData(this);
-                var $form = $(this);
-
                 $.ajax({
                     url: 'ajax/add_station.php',
                     type: 'POST',
@@ -575,19 +551,24 @@ if ($error !== '') {
                     contentType: false,
                     processData: false,
                     success: function(data) {
-                        handleSuccess(data, 'Станция была добавлена!', $("#error-block_m"), $form);
-                    },
-                    error: function(xhr, status, error) {
-                        showPopup('Ошибка AJAX: ' + error, 'error');
+                        if (data == 1) {
+                            $("#save-station").text("Выполнено");
+                            $("#error-block_m").hide();
+                            alert('Станция была добавлена!');
+                            //window.location.replace("http://dnch.loc/control_dcsrb.php");
+                            document.location.reload(true);
+                        } else {
+                            $("#error-block_m").show();
+                            $("#error-block_m").text(data);
+                        }
                     }
                 });
             });
 
+            //Обработка модального окна добавления ДНЧ
             $("form#add_dnch").submit(function(e) {
                 e.preventDefault();
                 var formData = new FormData(this);
-                var $form = $(this);
-
                 $.ajax({
                     url: 'ajax/add_dnch.php',
                     type: 'POST',
@@ -596,19 +577,24 @@ if ($error !== '') {
                     contentType: false,
                     processData: false,
                     success: function(data) {
-                        handleSuccess(data, 'ДНЧ добавлен!', $("#error-block_m2"), $form);
-                    },
-                    error: function(xhr, status, error) {
-                        showPopup('Ошибка AJAX: ' + error, 'error');
+                        if (data == 1) {
+                            $("#save-dnch").text("Выполнено");
+                            $("#error-block_m2").hide();
+                            alert('ДНЧ добавлен!');
+                            //window.location.replace("http://dnch.loc/control_dcsrb.php");
+                            document.location.reload(true);
+                        } else {
+                            $("#error-block_m2").show();
+                            $("#error-block_m2").text(data);
+                        }
                     }
                 });
             });
 
+            //Обработка модального окна добавления Пользователя
             $("form#add_user").submit(function(e) {
                 e.preventDefault();
                 var formData = new FormData(this);
-                var $form = $(this);
-
                 $.ajax({
                     url: 'ajax/add_user.php',
                     type: 'POST',
@@ -617,18 +603,25 @@ if ($error !== '') {
                     contentType: false,
                     processData: false,
                     success: function(data) {
-                        handleSuccess(data, 'Пользователь добавлен!', $("#error-block_m3"), $form);
-                    },
-                    error: function(xhr, status, error) {
-                        showPopup('Ошибка AJAX: ' + error, 'error');
+                        if (data == 1) {
+                            $("#save-user").text("Выполнено");
+                            $("#error-block_m3").hide();
+                            alert('Пользователь добавлен!');
+                            //window.location.replace("http://dnch.loc/control_dcsrb.php");
+                            document.location.reload(true);
+                        } else {
+                            $("#error-block_m3").show();
+                            $("#error-block_m3").text(data);
+                        }
                     }
                 });
             });
 
+            //Обработка модального окна редактирования Пользователя
             $(document).on('submit', 'form#edit_user', function(e) {
                 e.preventDefault();
+                console.log('Worked');
                 var formData = new FormData(this);
-
                 $.ajax({
                     url: 'ajax/update_user.php',
                     type: 'POST',
@@ -637,19 +630,16 @@ if ($error !== '') {
                     contentType: false,
                     processData: false,
                     success: function(data) {
-                        if ($.trim(data) === '1') {
+                        if (data == 1) {
                             $("#update-user").text("Выполнено");
                             $("#error-block_edit").hide();
-                            showPopup('Пользователь обновлен!', 'success');
+                            alert('Пользователь обновлен!');
                             $('#modalEditUser').modal('hide');
-                            setTimeout(function() { document.location.reload(true); }, 500);
+                            document.location.reload(true);
                         } else {
-                            $("#error-block_edit").show().text(data);
-                            showPopup('Ошибка: ' + data, 'error');
+                            $("#error-block_edit").show();
+                            $("#error-block_edit").text(data);
                         }
-                    },
-                    error: function(xhr, status, error) {
-                        showPopup('Ошибка AJAX: ' + error, 'error');
                     }
                 });
             });
@@ -666,9 +656,4 @@ if ($error !== '') {
     </div>
 
 </body>
-
 </html>
-
-
-
-

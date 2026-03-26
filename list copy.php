@@ -29,7 +29,7 @@ include_once('block/connect_db.php');
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="work_dsz" class="form-label">Опыт работы ДСЗ, ДСГ внеклассной и/или 1 класса станции (лет)</label></div>
-                            <div class="col-3"><input type="number" min="0" max="100" class="form-control" id="work_dsz" name="work_dsz" aria-describedby="date"></div>
+                            <div class="col-3"><input type="number" min="0" max="100" class="form-control" id="work_dsz" aria-describedby="date"></div>
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="work_ds" class="form-label">Опыт работы ДС 2-5 класса станции (лет)</label></div>
@@ -85,31 +85,31 @@ include_once('block/connect_db.php');
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="technical" class="form-label">Проведено технических занятий, охвачено чел.</label></div>
-                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="technical" name="technical"></div>
+                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="technical" name="technical "></div>
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="attestation" class="form-label">Участие в аттестационной комиссии, чел.</label></div>
-                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="attestation" name="attestation"></div>
+                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="attestation" name="attestation "></div>
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="check" class="form-label">Участие в проверке знаний ТРА у локомотивных бригад, чел</label></div>
-                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="check" name="check"></div>
+                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="check" name="check "></div>
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="allow" class="form-label">Участие в комиссии по допуску к управлению устр. ЖАТ, чел</label></div>
-                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="allow" name="allow"></div>
+                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="allow" name="allow "></div>
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="yourself" class="form-label">Участие в комиссии по допуску к самостоятельной работе, чел</label></div>
-                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="yourself" name="yourself"></div>
+                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="yourself" name="yourself "></div>
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="newdoc" class="form-label">Участие в разработке новых документов, кол-во док.</label></div>
-                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="newdoc" name="newdoc"></div>
+                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="newdoc" name="newdoc "></div>
                         </div>
                         <div class="row mb-2">
                             <div class="col-9"><label for="reconciliation" class="form-label">Проведение выверки документации, кол-во док.</label></div>
-                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="reconciliation" name="reconciliation"></div>
+                            <div class="col-3"><input type="number" min="0" max="500" class="form-control" id="reconciliation" name="reconciliation "></div>
                         </div>
 
                     </div>
@@ -230,58 +230,6 @@ include_once('block/connect_db.php');
     </main>
 
     <?php include_once("block/footer.php"); ?>
-
-    <div class="popup-message" id="popupMessage"></div>
-
-    <script>
-        function showPopup(message, type = 'success') {
-            var popup = document.getElementById('popupMessage');
-            if (!popup) {
-                alert(message);
-                return;
-            }
-            popup.className = 'popup-message ' + type;
-            popup.textContent = message;
-            popup.style.display = 'block';
-
-            if (window.popupTimeout) {
-                clearTimeout(window.popupTimeout);
-            }
-            window.popupTimeout = setTimeout(function () {
-                popup.style.display = 'none';
-            }, 3000);
-        }
-
-        (function () {
-            var form = document.getElementById('add_form1');
-            if (!form) return;
-
-            form.addEventListener('submit', function (e) {
-                e.preventDefault();
-                var formData = new FormData(form);
-
-                var xhr = new XMLHttpRequest();
-                xhr.open('POST', 'ajax/add_form1.php', true);
-                xhr.onload = function () {
-                    if (xhr.status === 200) {
-                        var data = xhr.responseText.trim();
-                        if (data === '1') {
-                            showPopup('Данные сохранены', 'success');
-                            form.reset();
-                        } else {
-                            showPopup('Ошибка: ' + data, 'error');
-                        }
-                    } else {
-                        showPopup('Ошибка AJAX: ' + xhr.status + ' ' + xhr.statusText, 'error');
-                    }
-                };
-                xhr.onerror = function () {
-                    showPopup('Ошибка AJAX: Соединение не удалось', 'error');
-                };
-                xhr.send(formData);
-            });
-        })();
-    </script>
 
 </body>
 

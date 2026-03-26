@@ -129,12 +129,26 @@ table.iksweb tr:hover td{
     overflow-x: auto;
 }
 
+.btn-size{
+    margin-top: 30px;
+    width: 100px;
+}
+
 p.coment{
     font-size: 1.2rem;
     font-style: italic;
     color: #ce2727;
 }
-
+.content{
+    width: 100%;
+    margin: 0 auto;
+    padding: 20px;
+    border: 1px solid grey;
+    border-radius: 20px;
+}
+.content-left, .content-right{
+    margin: 0 auto;
+}
 
 
 
@@ -214,3 +228,18 @@ p.coment{
 }
 
 /*Стили календаря ----конец----*/
+
+.popup-message {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1100;
+    min-width: 240px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    color: #fff;
+    box-shadow: 0 2px 14px rgba(0,0,0,.25);
+    display: none;
+}
+.popup-message.success { background: #28a745; }
+.popup-message.error { background: #dc3545; }
